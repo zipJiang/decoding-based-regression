@@ -1,0 +1,7 @@
+task_outputs
+.env
+*.log
+*.py[coa]
+*.swp
+*__pycache__
+*.db
