@@ -139,8 +139,8 @@ class EvaluationTask(BaseTask):
             results,
             task_evaluator.compute(
                 predictions=[r[0]['score'] for r in results],
-                references=load_dataset("Zhengping/UNLI", split='test')['label']
-                # references=self._test_dataset['label']
+                # references=load_dataset("Zhengping/UNLI", split='test')['label']
+                references=self._test_dataset['label']
             )
         )
 
