@@ -1,1 +1,4 @@
 from .dataset_preparation_task import DatasetPreparationTask
+from .sft_regression_task import TrainClassRewriterTask
+from .evaluation_task import EvaluationTask
+from .resize_embeddings_task import ResizeEmbeddingsTask
