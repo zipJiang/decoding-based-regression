@@ -1,2 +1,3 @@
-from .unli_dataset_processor import UNLIDatasetProcessor
 from .base_dataset_processor import BaseDatasetProcessor
+from .unli_dataset_processor import UNLIDatasetProcessor
+from .multi_premise_processor import MultiPremiseProcessor

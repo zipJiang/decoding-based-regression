@@ -1,0 +1,7 @@
+type: "evaluation"
+input_dir: "task_outputs/sft-regression"
+dataset_dir: "task_outputs/entailmentbank"
+output_dir: "task_outputs/evaluation-entailmentbank-sft"
+dependencies:
+  # training: "configs/training/sft_regression.yaml"
+  dataset: "configs/dataset/entailmentbank.yaml"
