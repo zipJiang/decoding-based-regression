@@ -5,6 +5,7 @@ import evaluate
 from tasker import BaseTask
 from datasets import load_from_disk, load_dataset
 # from transformers.trainer_utils import EvalPrediction
+from tqdm import tqdm
 import os
 import uuid
 import re
@@ -38,7 +39,7 @@ logger.addHandler(console_handler)
 
 @BaseTask.register("evaluation")
 class EvaluationTask(BaseTask):
-    __VERSION__ = "0.0.3"
+    __VERSION__ = "0.0.5"
 
     def __init__(
         self,
@@ -74,8 +75,13 @@ class EvaluationTask(BaseTask):
 
         # load the best ckpt
         self._config = PeftConfig.from_pretrained(best_ckpt)
-        self._model = AutoModelForCausalLM.from_pretrained(self._config.base_model_name_or_path)
-        self._peft_model = PeftModel.from_pretrained(self._model, best_ckpt)
+        self._model = AutoModelForCausalLM.from_pretrained(
+            self._config.base_model_name_or_path,
+            torch_dtype=torch.bfloat16,
+            load_in_8bit=False,
+            attn_implementation="flash_attention_2",
+        )
+        self._peft_model = PeftModel.from_pretrained(self._model, best_ckpt, torch_dtype=torch.bfloat16)
         self._tokenizer = AutoTokenizer.from_pretrained(best_ckpt)
         
     @overrides
@@ -91,7 +97,7 @@ class EvaluationTask(BaseTask):
         def _level_to_score_func(
             logits: Tuple[torch.FloatTensor],
             tokenizer: PreTrainedTokenizer
-        ) -> List[float]:
+        ) -> Tuple[List[float], List[float]]:
             """ """
             # TODO: factor the number_of_levels out as configurable
             # parameters
@@ -106,7 +112,7 @@ class EvaluationTask(BaseTask):
             # indices = torch.argmax(selective_logits, dim=-1).tolist()
             # scores = [i * 0.1 + 0.05 for i in indices]
             # print(scores)
-            return scores
+            return scores, selective_logits.tolist()
         
         pipe = pipeline(
             # "text-generation",
@@ -117,11 +123,12 @@ class EvaluationTask(BaseTask):
             level_to_score_func=_level_to_score_func
         )
 
-        inputs = [[
-            {
-                "role": "user",
-                "content": datapiece["prompt"]
-            },
+        inputs = [
+            datapiece['prompt'] + [
+            # {
+            #     "role": "user",
+            #     "content": datapiece["prompt"]
+            # },
             {
                 "role": "assistant",
                 "content": "### Answer:"
@@ -130,17 +137,18 @@ class EvaluationTask(BaseTask):
         
         task_evaluator = evaluate.load("src/metrics/decorel_regression.py")
         
-        results = pipe(
-            inputs,
+        results = [pipe(
+            ipt,
             do_sample=False
-        )
+        ) for ipt in tqdm(inputs)]
         
         return (
             results,
             task_evaluator.compute(
                 predictions=[r[0]['score'] for r in results],
                 # references=load_dataset("Zhengping/UNLI", split='test')['label']
-                references=self._test_dataset['label']
+                # references=[datapiece['scores'] for datapiece in self._test_dataset][0:3040:30]
+                references=self._test_dataset['scores']
             )
         )
 

@@ -14,7 +14,7 @@ class LevelToScorePipeline(TextGenerationPipeline):
     
     def __init__(
         self,
-        level_to_score_func: Callable[[Tuple[torch.FloatTensor], PreTrainedTokenizer], List[float]],
+        level_to_score_func: Callable[[Tuple[torch.FloatTensor], PreTrainedTokenizer], Tuple[List[float], List[List[float]]]],
         *args,
         **kwargs
     ):
@@ -152,7 +152,10 @@ class LevelToScorePipeline(TextGenerationPipeline):
         input_ids = model_outputs["input_ids"]
         prompt_text = model_outputs["prompt_text"]
         logits = model_outputs["logits"]
-        scores = self._level_to_score_func(logits, self.tokenizer)
+        
+        #TODO: This is now making many assumptions about how the logits are ordered,
+        # Should think about how to make this explicit
+        scores, selective_logits = self._level_to_score_func(logits, self.tokenizer)
         
         generated_sequence = generated_sequence.numpy().tolist()
         records = []
@@ -199,7 +202,11 @@ class LevelToScorePipeline(TextGenerationPipeline):
                         else:
                             # When we're not starting from a prefill, the output is a new assistant message
                             all_text = list(prompt_text.messages) + [{"role": "assistant", "content": all_text}]
-                record = {"generated_text": all_text, "score": scores[0]}
+                record = {
+                    "generated_text": all_text,
+                    "score": scores[0],
+                    "selective_logits": selective_logits[0]
+                }
             records.append(record)
 
         return records

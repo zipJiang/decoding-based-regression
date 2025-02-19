@@ -1,0 +1,2 @@
+from .single_token_reg_loss import SingleTokenRegLoss
+from .single_token_reg_loss import MSESingleTokenRegLoss

@@ -1,0 +1,7 @@
+type: "evaluation"
+input_dir: "task_outputs/sft-regression-margin-reg"
+dataset_dir: "task_outputs/unli-dataset-preparation-completion"
+output_dir: "task_outputs/evaluation-margin-reg"
+dependencies:
+  training: "configs/training/sft_margin_reg.yaml"
+  dataset: "configs/dataset/unli-dataset-preparation-completion.yaml"
