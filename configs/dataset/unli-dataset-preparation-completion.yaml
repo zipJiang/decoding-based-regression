@@ -3,3 +3,5 @@ output_dir: "task_outputs/unli-dataset-preparation-completion"
 dataset_processor:
   type: "unli"
   number_of_levels: 10
+  template:
+    type: "unli"

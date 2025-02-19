@@ -32,7 +32,9 @@ class DatasetPreparationTask(BaseTask):
         #     "dataset"
         # ))
         if isinstance(dataset, DatasetDict):
-            print(dataset['train'][:5])
+            # print(dataset['train'][:5])
+            # print the first 5 examples from the first split
+            print(dataset)
         elif isinstance(dataset, Dataset):
             print(dataset[:5])
         
