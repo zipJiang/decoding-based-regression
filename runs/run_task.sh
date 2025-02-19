@@ -7,6 +7,7 @@
 export PYTHONPATH=$(pwd):$PYTHONPATH
 # export CUDA_LAUNCH_BLOCKING=1
 export HF_HOME=/scratch/bvandur1/zjiang31/conformal-backoff/data/hub-home/
+export NCCL_DEBUG=INFO
 EXCLUDE_LAST=0
 USE_ACCELERATE=0
 
@@ -95,15 +96,16 @@ echo "-------------------"
 conda run -p .env --no-capture-output \
     python scripts/test_gpu.py
 
+# serve vllm in the background with log directed to vllm_log.txt
+# use the n - 1 first GPUs
+if [ $EXCLUDE_LAST -eq 1 ]; then
+    selected_gpus=${GPUS[@]::${#GPUS[@]}-1}
+else
+    selected_gpus=${GPUS[@]}
+fi
+num_gpus=$(echo $selected_gpus | wc -w)
+
 if [ $SERVE_VLLM -eq 1 ]; then
-    # serve vllm in the background with log directed to vllm_log.txt
-    # use the n - 1 first GPUs
-    if [ $EXCLUDE_LAST -eq 1 ]; then
-        selected_gpus=${GPUS[@]::${#GPUS[@]}-1}
-    else
-        selected_gpus=${GPUS[@]}
-    fi
-    num_gpus=$(echo $selected_gpus | wc -w)
 
     rm -f vllm_log.txt
 
@@ -129,7 +131,8 @@ do
         conda run -p .env --no-capture-output \
             accelerate launch \
                 --multi_gpu \
-                --num_processes=4 \
+                --main_process_port=29603 \
+                --num_processes=${num_gpus} \
                 scripts/run_task.py --config-path ${config_path}
     else
         CUDA_VISIBLE_DEVICES=${LAST_GPU} conda run -p .env --no-capture-output \

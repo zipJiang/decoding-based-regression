@@ -1,0 +1,14 @@
+type: "sft-regression"
+output_dir: "task_outputs/sft-regression-mse-reg-upscale"
+input_dir: "task_outputs/unli-dataset-preparation-completion"
+learning_rate: 0.00002
+model_name: "/scratch/bvandur1/zjiang31/decoding-based-regression/task_outputs/model-with-resized-embeddings"
+rank_dict:
+  type: "single-label"
+score_loss_func:
+  type: "mse"
+  scale_factor: 5.0
+is_chat: true
+dependencies:
+  "unli-preparation": "configs/dataset/unli-dataset-preparation-completion.yaml"
+  "resize-embeddings": "configs/preprocess/resize_embeddings.yaml"

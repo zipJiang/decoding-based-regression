@@ -11,7 +11,6 @@ from ..utils.transforms import _inverse_sigmoid_unli
 
 @BaseDatasetProcessor.register("unli")
 class UNLIDatasetProcessor(BaseDatasetProcessor):
-    
     def __init__(
         self,
         number_of_levels: int,
@@ -38,25 +37,28 @@ class UNLIDatasetProcessor(BaseDatasetProcessor):
     def _process_completion(self):
         dataset = load_dataset("Zhengping/UNLI")
         
-        get_prompt = lambda x: (
-            "### Question: Given the premise \"{premise}\", how likely is it that the hypothesis \"{hypothesis}\" is true?\n\n".format(
+        get_prompt = lambda x: ([{
+            "role": "user",
+            "content": "### Question: Given the premise \"{premise}\", how likely is it that the hypothesis \"{hypothesis}\" is true?\n\n".format(
                 premise=x["premise"],
                 hypothesis=x["hypothesis"]
-            )
-        )
+            )}
+        ])
         
-        get_completion = lambda x: (
-            f"### Answer: <|label_level_{self._label_bining(_inverse_sigmoid_unli(x['label']))}|>"
-        )
+        get_completion = lambda x: ([{
+            "role": "assistant",
+            "content": f"### Answer: <|label_level_{self._label_bining(_inverse_sigmoid_unli(x['label']))}|>"
+        }])
         
         dataset = dataset.map(lambda example: {
             "prompt": get_prompt(example),
-            "completion": get_completion(example)
+            "completion": get_completion(example),
+            "scores": example["label"],
         }, remove_columns=[
             "premise",
             "hypothesis",
-            # "label",
-            # "snli-label"
+            "label",
+            "snli-label"
         ])
 
         return dataset
