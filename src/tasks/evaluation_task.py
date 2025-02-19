@@ -39,7 +39,7 @@ logger.addHandler(console_handler)
 
 @BaseTask.register("evaluation")
 class EvaluationTask(BaseTask):
-    __VERSION__ = "0.0.5"
+    __VERSION__ = "0.0.6"
 
     def __init__(
         self,
@@ -131,11 +131,12 @@ class EvaluationTask(BaseTask):
             # },
             {
                 "role": "assistant",
+                # TODO: Switch to the correct template class
                 "content": "### Answer:"
             }
         ] for datapiece in self._test_dataset]
         
-        task_evaluator = evaluate.load("src/metrics/decorel_regression.py")
+        task_evaluator = evaluate.load("src/metrics/decorel_regression.py", correlation_type="spearman")
         
         results = [pipe(
             ipt,

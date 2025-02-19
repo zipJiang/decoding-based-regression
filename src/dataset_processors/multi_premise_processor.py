@@ -39,7 +39,7 @@ class MultiPremiseProcessor(UNLIDatasetProcessor):
             """ """
             
             return {
-                "premise": ' '.join(datapiece["premise"]),
+                "premise": ' '.join(datapiece["premise"]) if isinstance(datapiece["premise"], list) else datapiece["premise"],
                 "hypothesis": datapiece["hypothesis"],
                 "label": datapiece["label"]
             }

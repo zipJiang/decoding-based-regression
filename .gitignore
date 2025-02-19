@@ -1,4 +1,5 @@
 task_outputs
+data
 wandb
 .env
 *.log
