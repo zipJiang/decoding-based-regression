@@ -23,8 +23,11 @@ from typing import (
 from registrable import Lazy
 from ..rank_dicts import BaseRankDict
 from ..trainers import DecoderBasedRegressionTrainer
-from ..data_collators import DataCollatorForCompletionRegression
-from ..losses import SingleTokenRegLoss
+from ..data_collators import (
+    DataCollatorForCompletionRegression,
+    DataCollatorForSingleTokenSoftLM
+)
+from ..losses import SingleTokenRegLoss, SoftTokenLoss
 from ..utils.common import get_tokenizer
 
 
@@ -40,6 +43,7 @@ class TrainSFTRegressionTask(BaseTask):
         model_name: Text,
         rank_dict: Optional[Lazy[BaseRankDict]] = None,
         score_loss_func: Optional[Lazy[SingleTokenRegLoss]] = None,
+        force_diffuse: bool = False,
         is_chat: bool = False
     ):
         super().__init__(output_dir=output_dir)
@@ -80,13 +84,17 @@ class TrainSFTRegressionTask(BaseTask):
         
         self._score_loss_func = None
         if score_loss_func is not None:
+            # TODO: remove rank_dict dependency
             self._rank_dict = rank_dict.construct(tokenizer=self._tokenizer)
             # print(self._rank_dict.get_rank_dict(self._tokenizer))
             self._score_loss_func = score_loss_func.construct(
                 rank_dict=self._rank_dict.get_rank_dict(self._tokenizer)
             )
             self._score_loss_func.to(device=self._partial_state.device)
-        
+
+        self._compute_loss_func = None
+        if force_diffuse:
+            self._compute_loss_func = SoftTokenLoss()
         
         self._trainer = DecoderBasedRegressionTrainer(
             model=self._model,
@@ -94,6 +102,11 @@ class TrainSFTRegressionTask(BaseTask):
                 instruction_template="### Question:",
                 response_template="### Answer:",
                 tokenizer=self._tokenizer
+            ) if not force_diffuse else DataCollatorForSingleTokenSoftLM(
+                instruction_template="### Question:",
+                response_template="### Answer:",
+                tokenizer=self._tokenizer,
+                # Use default sigma
             ),
             formatting_func=None if self._is_chat else lambda x: f"{x['prompt']}\n\n{x['completion']}",
             processing_class=self._tokenizer,
@@ -116,7 +129,8 @@ class TrainSFTRegressionTask(BaseTask):
                 # lr_scheduler_type="constant",
             ),
             peft_config=self._peft_config,
-            compute_score_loss_func=self._score_loss_func
+            compute_score_loss_func=self._score_loss_func,
+            compute_loss_func=self._compute_loss_func,
         )
         
     @overrides

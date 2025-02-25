@@ -6,7 +6,7 @@
 
 export PYTHONPATH=$(pwd):$PYTHONPATH
 # export CUDA_LAUNCH_BLOCKING=1
-export HF_HOME=/scratch/bvandur1/zjiang31/conformal-backoff/data/hub-home/
+export HF_HOME=/weka/scratch/bvandur1/zjiang31/conformal-backoff/data/hub-home/
 export NCCL_DEBUG=INFO
 EXCLUDE_LAST=0
 USE_ACCELERATE=0
@@ -124,10 +124,21 @@ if [ $SERVE_VLLM -eq 1 ]; then
     done
 fi
 
-
 for config_path in "${CONFIG_PATHS[@]}"
 do
     if [ $USE_ACCELERATE -eq 1 ]; then
+        port_num=29603
+
+        # test if port is available
+        # without using nc -z
+
+        while true; do
+            if ! lsof -i :${port_num} > /dev/null; then
+                break
+            fi
+            port_num=$((port_num + 1))
+        done
+
         conda run -p .env --no-capture-output \
             accelerate launch \
                 --multi_gpu \

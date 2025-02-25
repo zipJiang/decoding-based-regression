@@ -65,6 +65,7 @@ class UNLIDatasetProcessor(BaseDatasetProcessor):
             "prompt": get_prompt(example),
             "completion": get_completion(example),
             "scores": example["label"],
-        }, remove_columns=dataset.column_names)
+            # Remove column_names if is dataset otherwise DatsetDict has split names as column names
+        }, remove_columns=dataset.column_names if isinstance(dataset, Dataset) else dataset[list(dataset.keys())[0]].column_names)
 
         return dataset

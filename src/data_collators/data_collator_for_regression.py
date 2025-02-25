@@ -22,6 +22,9 @@ class DataCollatorForSFTRegressionMixin:
         
         batch = super().torch_call(examples)
         # TODO: Making this more general and compatible with different data-types
+        if 'scores' not in examples[0]:
+            return batch
+        
         batch['scores'] = torch.tensor([example['scores'] for example in examples], dtype=torch.bfloat16)
         
         return batch

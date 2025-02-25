@@ -11,6 +11,8 @@ from typing import List, Dict
 class SingleTokenRegLoss(torch.nn.Module, ABC, Registrable):
     """ """
     
+    _ignore_index: int = -100
+    
     def __init__(
         self,
         scale_factor: float = 1.0,
@@ -40,12 +42,12 @@ class SingleTokenRegLoss(torch.nn.Module, ABC, Registrable):
         batch_size, _ = labels.shape
         first_non_ignore_indices = []
 
-        mask = (labels != self._ignore_index)
+        mask = ~labels.eq(self._ignore_index)
         # We use the trick that max will return the first index of the max value
         first_non_ignore_indices = torch.argmax(mask.int(), dim=1)
         
         # TODO: Need to handle exception if no non-ignore index is found (mask[x] = 0)
-        ...
+        pass
         
         selected_logits = logits[torch.arange(batch_size), first_non_ignore_indices]  # [batch_size, vocab_size]
         loss = self._compute_loss(selected_logits, scores, num_items_in_batch)
@@ -79,7 +81,7 @@ class MSESingleTokenRegLoss(SingleTokenRegLoss):
         rank_ids: [int]
         """
         super().__init__(*args, **kwargs)
-        self._ignore_index = -100
+        # self._ignore_index = -100
         self._rank_ids = []
         self._rank_targ = []
         
@@ -136,7 +138,7 @@ class MarginSingleTokenRegLoss(SingleTokenRegLoss):
         rank_ids: [int]
         """
         super().__init__(*args, **kwargs)
-        self._ignore_index = -100
+        # self._ignore_index = -100
         self._rank_ids = []
         self._rank_targ = []
         

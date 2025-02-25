@@ -1,6 +1,7 @@
 """ """
 
 import numpy as np
+from scipy.stats import norm
 
 
 _BETA_POSITIVE_ = .02
@@ -38,3 +39,22 @@ def _inverse_sigmoid_unli(x: np.ndarray) -> np.ndarray:
     )
     
     return (sigmoid_inversed + 50) * 100
+
+
+def _discretize_gaussian(
+    mean: np.ndarray,
+    std: np.ndarray,
+    levels: np.ndarray
+) -> np.ndarray:
+    """
+    mean: [batch_size]
+    std: [batch_size]
+    levels: [batch_size, num_levels]
+    """
+    
+    boundaries = (levels[:, 1:] + levels[:, :-1] ) / 2
+    bcdfs = norm.cdf(boundaries, loc=mean[:, np.newaxis], scale=std)
+
+    # left pad bcdfs with 0 and right pad with 1
+    bcdfs = np.concatenate([np.zeros((bcdfs.shape[0], 1)), bcdfs, np.ones((bcdfs.shape[0], 1))], axis=1)
+    return bcdfs[:, 1:] - bcdfs[:, :-1]

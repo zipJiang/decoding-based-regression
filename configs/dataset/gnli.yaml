@@ -1,8 +1,0 @@
-type: "dataset-preparation"
-output_dir: "task_outputs/gnli"
-dataset_processor:
-  datapath: "data/synthetic/GNLI_test.jsonl"
-  type: "multi-premise"
-  number_of_levels: 10
-  template:
-    type: "unli"

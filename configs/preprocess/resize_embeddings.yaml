@@ -1,4 +1,0 @@
-type: "resize-embeddings"
-model_name: "meta-llama/Meta-Llama-3-8B-Instruct"
-number_of_levels: 10
-output_dir: "task_outputs/model-with-resized-embeddings"

@@ -39,18 +39,24 @@ logger.addHandler(console_handler)
 
 @BaseTask.register("evaluation")
 class EvaluationTask(BaseTask):
-    __VERSION__ = "0.0.6"
+    __VERSION__ = "0.0.7"
 
     def __init__(
         self,
         input_dir: Text,
-        dataset_dir: Text,
+        num_labels: int,
+        dataset_map: List[Tuple[Text, Text]],
         output_dir: Text
     ):
         super().__init__(output_dir=output_dir)
         self._input_dir = input_dir
-        self._dataset_dir = dataset_dir
-        self._test_dataset = load_from_disk(os.path.join(self._dataset_dir, "dataset", 'test'))
+        self._num_labels = num_labels
+        print(input_dir)
+        # self._dataset_dir = dataset_dir
+        self._dataset_map = {
+            dataset_name: load_from_disk(os.path.join(dataset_dir, "dataset", 'test'))
+            for dataset_name, dataset_dir in dataset_map
+        }
         
         def _parse_ckpt_dir(directory: Text) -> int:
             match = re.search(r"checkpoint-(\d+)", directory)
@@ -102,11 +108,12 @@ class EvaluationTask(BaseTask):
             # TODO: factor the number_of_levels out as configurable
             # parameters
             logits = logits[0]
-            considering_ids = tokenizer.convert_tokens_to_ids([f" <|label_level_{i}|>" for i in range(10)])
+            considering_ids = tokenizer.convert_tokens_to_ids([f" <|label_level_{i}|>" for i in range(self._num_labels)])
             # print(considering_ids, logits.shape)
-            selective_logits = torch.index_select(logits, 1, torch.tensor(considering_ids).to(logits.device))
+            selective_logits = torch.index_select(logits, 1, torch.tensor(considering_ids, device=logits.device))
             # print(selective_logits)
-            expectation = torch.tensor([[i * 0.1 + 0.05 for i in range(10)]])
+            step_size = 1 / self._num_labels
+            expectation = torch.tensor([[i * step_size + 1 / 2 * step_size for i in range(self._num_labels)]], device=selective_logits.device)
             scores = torch.softmax(selective_logits, dim=-1) @ expectation.T
             scores = scores.squeeze(-1).tolist()
             # indices = torch.argmax(selective_logits, dim=-1).tolist()
@@ -122,36 +129,49 @@ class EvaluationTask(BaseTask):
             device=0,
             level_to_score_func=_level_to_score_func
         )
-
-        inputs = [
-            datapiece['prompt'] + [
-            # {
-            #     "role": "user",
-            #     "content": datapiece["prompt"]
-            # },
-            {
-                "role": "assistant",
-                # TODO: Switch to the correct template class
-                "content": "### Answer:"
+        spearman_evaluator = evaluate.load("src/metrics/decorel_regression.py", correlation_type="spearman")
+        pearson_evaluator = evaluate.load("src/metrics/decorel_regression.py", correlation_type="pearson")
+        
+        result_dict = {}
+        
+        for dataset_name, test_dataset in self._dataset_map.items():
+            inputs = [
+                datapiece['prompt'] + [
+                # {
+                #     "role": "user",
+                #     "content": datapiece["prompt"]
+                # },
+                {
+                    "role": "assistant",
+                    # TODO: Switch to the correct template class
+                    "content": "### Answer:"
+                }
+            ] for datapiece in test_dataset]
+        
+            results = [pipe(
+                ipt,
+                do_sample=False
+            ) for ipt in tqdm(inputs)]
+            
+            result_dict[dataset_name] = {
+                "results": results,
+                "evaluation": {
+                    "spearman": spearman_evaluator.compute(
+                        predictions=[r[0]['score'] for r in results],
+                        # references=load_dataset("Zhengping/UNLI", split='test')['label']
+                        # references=[datapiece['scores'] for datapiece in self._test_dataset][0:3040:30]
+                        references=test_dataset['scores']
+                    ),
+                    "pearson": pearson_evaluator.compute(
+                        predictions=[r[0]['score'] for r in results],
+                        # references=load_dataset("Zhengping/UNLI", split='test')['label']
+                        # references=[datapiece['scores'] for datapiece in self._test_dataset][0:3040:30]
+                        references=test_dataset['scores']
+                    )
+                }
             }
-        ] for datapiece in self._test_dataset]
-        
-        task_evaluator = evaluate.load("src/metrics/decorel_regression.py", correlation_type="spearman")
-        
-        results = [pipe(
-            ipt,
-            do_sample=False
-        ) for ipt in tqdm(inputs)]
-        
-        return (
-            results,
-            task_evaluator.compute(
-                predictions=[r[0]['score'] for r in results],
-                # references=load_dataset("Zhengping/UNLI", split='test')['label']
-                # references=[datapiece['scores'] for datapiece in self._test_dataset][0:3040:30]
-                references=self._test_dataset['scores']
-            )
-        )
+            
+        return result_dict
 
     @overrides
     def _write(self, outputs):
@@ -159,11 +179,5 @@ class EvaluationTask(BaseTask):
         # merged_model, tokenizer = outputs
         # merged_model.save_pretrained(self._output_dir)
         # tokenizer.save_pretrained(self._output_dir)
-        
-        results, evaluation = outputs
-        
-        with open(os.path.join(self._output_dir, "results.json"), 'w', encoding='utf-8') as file_:
-            json.dump(results, file_, ensure_ascii=False, indent=4)
-            
         with open(os.path.join(self._output_dir, "evaluation.json"), 'w', encoding='utf-8') as file_:
-            json.dump(evaluation, file_, ensure_ascii=False, indent=4)
+            json.dump(outputs, file_, ensure_ascii=False, indent=4)

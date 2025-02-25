@@ -1,7 +1,0 @@
-type: "evaluation"
-input_dir: "task_outputs/sft-regression"
-dataset_dir: "task_outputs/gnli"
-output_dir: "task_outputs/evaluation-gnli-sft"
-dependencies:
-  # training: "configs/training/sft_regression.yaml"
-  dataset: "configs/dataset/gnli.yaml"
