@@ -26,9 +26,11 @@ class UNLITemplate(BaseTemplate):
     def get_completion_template(self, **kwargs) -> Union[List[Dict[Text, Any]], Text]:
         """ """
         
+        is_completion = kwargs.pop("is_completion", False)
+        
         return [{
             "role": "assistant",
             "content": "### Answer:{answer}".format(
                 **kwargs
-            )
+            ) if not is_completion else "### Answer:"
         }]

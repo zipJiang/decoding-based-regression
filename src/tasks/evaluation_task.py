@@ -24,6 +24,7 @@ from typing import (
 )
 from transformers.pipelines import PIPELINE_REGISTRY
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline, PreTrainedTokenizer
+from transformers import GenerationConfig
 from trl import SFTConfig, SFTTrainer, DataCollatorForCompletionOnlyLM
 from peft import PeftModel, PeftConfig
 from ..pipelines.level_to_score_pipeline import LevelToScorePipeline
@@ -39,7 +40,12 @@ logger.addHandler(console_handler)
 
 @BaseTask.register("evaluation")
 class EvaluationTask(BaseTask):
-    __VERSION__ = "0.0.7"
+    __VERSION__ = "0.0.12"
+    
+    __DEFEASIBLE_LIST__ = {
+        "defeasible-atomic",
+        "defeasible-snli",
+    }
 
     def __init__(
         self,
@@ -124,13 +130,15 @@ class EvaluationTask(BaseTask):
         pipe = pipeline(
             # "text-generation",
             "level-to-score",
-            model=self._model,
+            model=self._peft_model,
+            max_new_tokens=2,
             tokenizer=self._tokenizer,
             device=0,
             level_to_score_func=_level_to_score_func
         )
         spearman_evaluator = evaluate.load("src/metrics/decorel_regression.py", correlation_type="spearman")
         pearson_evaluator = evaluate.load("src/metrics/decorel_regression.py", correlation_type="pearson")
+        accuracy_evaluator = evaluate.load("accuracy")
         
         result_dict = {}
         
@@ -153,23 +161,55 @@ class EvaluationTask(BaseTask):
                 do_sample=False
             ) for ipt in tqdm(inputs)]
             
-            result_dict[dataset_name] = {
-                "results": results,
-                "evaluation": {
-                    "spearman": spearman_evaluator.compute(
-                        predictions=[r[0]['score'] for r in results],
-                        # references=load_dataset("Zhengping/UNLI", split='test')['label']
-                        # references=[datapiece['scores'] for datapiece in self._test_dataset][0:3040:30]
-                        references=test_dataset['scores']
-                    ),
-                    "pearson": pearson_evaluator.compute(
-                        predictions=[r[0]['score'] for r in results],
-                        # references=load_dataset("Zhengping/UNLI", split='test')['label']
-                        # references=[datapiece['scores'] for datapiece in self._test_dataset][0:3040:30]
-                        references=test_dataset['scores']
-                    )
+            if dataset_name in self.__DEFEASIBLE_LIST__:
+                # This only works for defeasible evaluation
+                update_inputs = [
+                    datapiece['update_prompt'] + [{
+                        "role": "assistant",
+                        # TODO: Switch to the correct template class
+                        "content": "### Answer:"
+                    }] for datapiece in test_dataset
+                ]
+                update_results = [pipe(
+                    ipt,
+                    do_sample=False
+                ) for ipt in tqdm(update_inputs)]
+                
+                result_dict[dataset_name] = {
+                    "results": [
+                        {
+                            "original": r[0],
+                            "update": u[0]
+                        } for r, u in zip(results, update_results)
+                    ],
+                    "evaluation": {
+                        # defeasible 0 for weakener, 1 for strengthener
+                        "accuracy": accuracy_evaluator.compute(
+                            predictions=[int(u[0]['score'] - r[0]['score'] > 0) for r, u in zip(results, update_results)],
+                            references=test_dataset['is_strengthener']
+                        ),
+                    }
                 }
-            }
+            
+            # This only works for non-defeasible evaluation
+            else:
+                result_dict[dataset_name] = {
+                    "results": results,
+                    "evaluation": {
+                        "spearman": spearman_evaluator.compute(
+                            predictions=[r[0]['score'] for r in results],
+                            # references=load_dataset("Zhengping/UNLI", split='test')['label']
+                            # references=[datapiece['scores'] for datapiece in self._test_dataset][0:3040:30]
+                            references=test_dataset['scores']
+                        ),
+                        "pearson": pearson_evaluator.compute(
+                            predictions=[r[0]['score'] for r in results],
+                            # references=load_dataset("Zhengping/UNLI", split='test')['label']
+                            # references=[datapiece['scores'] for datapiece in self._test_dataset][0:3040:30]
+                            references=test_dataset['scores']
+                        )
+                    }
+                }
             
         return result_dict
 
@@ -179,5 +219,10 @@ class EvaluationTask(BaseTask):
         # merged_model, tokenizer = outputs
         # merged_model.save_pretrained(self._output_dir)
         # tokenizer.save_pretrained(self._output_dir)
-        with open(os.path.join(self._output_dir, "evaluation.json"), 'w', encoding='utf-8') as file_:
-            json.dump(outputs, file_, ensure_ascii=False, indent=4)
+        # with open(os.path.join(self._output_dir, "evaluation.json"), 'w', encoding='utf-8') as file_:
+        #     json.dump(outputs, file_, ensure_ascii=False, indent=4)
+        
+        # we separate the result into different files
+        for dataset_name, result in outputs.items():
+            with open(os.path.join(self._output_dir, f"{dataset_name}.json"), 'w', encoding='utf-8') as file_:
+                json.dump(result, file_, ensure_ascii=False, indent=4)

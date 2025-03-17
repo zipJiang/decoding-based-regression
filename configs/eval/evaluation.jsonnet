@@ -10,8 +10,8 @@ local possible_scale_tag = if reg_method == "null" then "" else "::scale=" + sca
     num_labels: num_labels,
     dataset_map: [
         // dname: "task_outputs/dataset/" + dname + "-" + num_labels,
-        [dname, "task_outputs/dataset/" + dname + "-" + num_labels]
-        for dname in ["unli", "gnli", "ecare", "entailmentbank"]
+        [dname, "task_outputs/dataset/" + dname + (if std.startsWith(dname, "defeasible") then "" else "-" + num_labels)]
+        for dname in ["unli", "gnli", "ecare", "entailmentbank", "defeasible-snli", "defeasible-atomic"]
     ],
     output_dir: "task_outputs/eval_results/sft-regression/" + model_stem + "::nl=" + num_labels + "::reg=" + reg_method + possible_scale_tag,
 }

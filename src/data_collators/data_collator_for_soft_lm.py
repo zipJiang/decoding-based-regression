@@ -54,7 +54,7 @@ class DataCollatorForSingleTokenSoftLM(
     def __init__(
         self,
         *args,
-        sigma: Optional[float] = 0.05,
+        sigma: Optional[float] = 0.005,
         **kwargs
     ):
         super().__init__(*args, **kwargs)
@@ -75,28 +75,35 @@ class DataCollatorForSingleTokenSoftLM(
         # labels: [batch_size, seq_len]
         # scores: [batch_size]
         assert 'scores' in examples[0], "The scores field is not found in the examples."
-        vocab_size = len(self.tokenizer.get_vocab())
-        
-        scores = np.array([example['scores'] for example in examples])
-        probs = _discretize_gaussian(
-            mean=scores,
-            std=self.sigma,
-            levels=self.levels[np.newaxis, :]
-        )  # [batch_size, num_levels]
-        
         # from probs create a soft distribution [batch_size, seq_len, vocab_size]
         labels = batch.pop("labels")
         mask = ~labels.eq(self.ignore_index)
         first_non_ignore_indices = torch.argmax(mask.int(), dim=1)  # [batch_size]
-        
         # for those with ignored_index, convert to 0 in labels
+        # We need to compute soft-labels from score
+        vocab_size = len(self.tokenizer.get_vocab())
+            
         _labels = labels.masked_fill(~mask, 0)
         soft_labels = torch.nn.functional.one_hot(_labels, num_classes=vocab_size).to(dtype=torch.float16)
-
+            
+        
+        if not isinstance(examples[0]['scores'], list):
+            scores = np.array([example['scores'] for example in examples])
+            probs = _discretize_gaussian(
+                mean=scores / 10000,
+                std=self.sigma,
+                levels=self.levels[np.newaxis, :]
+            )  # [batch_size, num_levels]
+            
+        else:
+            # We only need to load and insert the labels
+            probs = np.array([example['scores'] for example in examples])
+        
         soft_labels[
-            torch.arange(soft_labels.shape[0]),
-            first_non_ignore_indices
-        ][:, self.level_ids] = torch.tensor(probs, dtype=torch.float16)
+            torch.arange(soft_labels.shape[0]).unsqueeze(-1),
+            first_non_ignore_indices.unsqueeze(-1),
+            self.level_ids,
+        ] = torch.tensor(probs, dtype=torch.float16)
         
         # again mask out the ignored_index
         batch['labels'] = soft_labels.masked_fill(~mask.unsqueeze(-1), self.ignore_index)

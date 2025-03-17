@@ -31,9 +31,12 @@ from ..losses import SingleTokenRegLoss, SoftTokenLoss
 from ..utils.common import get_tokenizer
 
 
+torch.set_printoptions(threshold=256)
+
+
 @BaseTask.register('sft-regression')
 class TrainSFTRegressionTask(BaseTask):
-    __VERSION__ = '0.0.2'
+    __VERSION__ = '0.0.5'
 
     def __init__(
         self,
@@ -116,7 +119,7 @@ class TrainSFTRegressionTask(BaseTask):
                 max_seq_length=256,
                 metric_for_best_model="eval_loss",
                 learning_rate=self._learning_rate,
-                num_train_epochs=5,
+                num_train_epochs=3,
                 eval_strategy="epoch",
                 output_dir=self._output_dir,
                 save_total_limit=3,

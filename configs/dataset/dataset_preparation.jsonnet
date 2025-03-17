@@ -1,4 +1,5 @@
 local number_of_levels = std.parseInt(std.extVar("NUM_LABELS"));
+local with_other_tests = std.parseInt(std.extVar("WITH_OTHER_TESTS")) == 1;
 
 local all_configs = {
     "unli": {
@@ -7,6 +8,20 @@ local all_configs = {
         template: {
             type: "unli"
         }
+    },
+    "defeasible-snli": {
+        type: "defeasible-nli",
+        template: {
+            type: "unli"
+        },
+        subset: "snli"
+    },
+    "defeasible-atomic": {
+        type: "defeasible-nli",
+        template: {
+            type: "unli"
+        },
+        subset: "atomic"
     },
     "ecare": {
         type: "multi-premise",
@@ -22,6 +37,25 @@ local all_configs = {
     "gnli": self["ecare"] + {
         datapath: "data/synthetic/GNLI_test.jsonl"
     },
+    "pseudo-label": {
+        type: "pseudo-label",
+        number_of_levels: number_of_levels,
+        template: {
+            type: "unli"
+        },
+        data_dir: "data/pseudo-labeled",
+        model_names: [
+            "DeepSeek/DeepSeek-R1-Distill-Qwen-32B",
+            "meta-llama/Llama-3.3-70B-Instruct",
+            "Qwen/Qwen2.5-72B-Instruct-AWQ",
+            "Qwen/QwQ-32B",
+        ],
+        dataset_names: [
+            "anli",
+            "wanli"
+        ],
+        include_other_tests: with_other_tests
+    }
 };
 
 local get_dataset_processor(task_name) = 
@@ -30,6 +64,6 @@ local get_dataset_processor(task_name) =
 
 {
     type: "dataset-preparation",
-    output_dir: "task_outputs/dataset/" + std.extVar("TASK_NAME") + "-" + number_of_levels,
+    output_dir: "task_outputs/dataset/" + std.extVar("TASK_NAME") + (if std.startsWith(std.extVar("TASK_NAME"), "defeasible") then "" else "-" + number_of_levels),
     dataset_processor: get_dataset_processor(std.extVar("TASK_NAME")),
 }
