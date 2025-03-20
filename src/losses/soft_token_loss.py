@@ -15,9 +15,15 @@ class SoftTokenLoss(torch.nn.Module):
 
     _ignore_index: int = -100
     
-    def __init__(self):
+    def __init__(
+        self,
+        reverse_kl_loss: bool = False,
+        temperature: float = 1.0,
+    ):
         """ """
         super().__init__()
+        self._reverse_kl_loss = reverse_kl_loss
+        self._temperature = temperature
         
     def forward(
         self,
@@ -50,11 +56,33 @@ class SoftTokenLoss(torch.nn.Module):
         labels = labels[:, 1:, :].contiguous()
         mask = labels[:, :, 0].eq(self._ignore_index)
         
-        pos_loss = torch.nn.functional.cross_entropy(
-            logits.view(-1, logits.size(-1)),
-            torch.clamp(labels, min=0).view(-1, labels.size(-1)),
-            reduction='none'
-        )
+        # pos_loss = torch.nn.functional.cross_entropy(
+        #     logits.view(-1, logits.size(-1)),
+        #     torch.clamp(labels, min=0).view(-1, labels.size(-1)),
+        #     reduction='none'
+        # )
+        
+        # logits: [batch_size, seq_len, vocab_size]
+        # labels: [batch_size, seq_len, vocab_size]
+        
+        # assume that labels are the soft labels
+        if not self._reverse_kl_loss:
+            pos_loss = torch.nn.functional.kl_div(
+                torch.log_softmax(logits / self._temperature, dim=-1),
+                labels,
+                reduction='none',
+            )
+        else:
+            # reversed kl divergence
+            pos_loss = torch.nn.functional.kl_div(
+                torch.log(labels),
+                torch.log_softmax(logits / self._temperature, dim=-1),
+                log_target=True,
+                reduction="none",
+            )
+
+        # pos_loss: [batch_size, seq_len, vocab_size]
+        pos_loss = pos_loss.sum(dim=-1)
         
         # We only calculate the loss for the non-masked tokens
         pos_loss.masked_fill_(mask.flatten(), 0)

@@ -46,18 +46,6 @@ class PseudoLabeledDatasetProcessor(BaseDatasetProcessor):
 
         assert "unli" not in self._dataset_names, "UNLI dataset should not be in the dataset names."
         
-    def _label_bining(self, x: Union[float, np.ndarray]) -> int:
-        """Same as the one in the UNLIDatasetProcessor
-        """
-        
-        # x is in [1, 10000]
-
-        return max(
-            min(
-                int(x * self._number_of_levels / 10000), self._number_of_levels - 1
-            ), 0
-        )
-
     @overrides
     def _process(self) -> Union[Dataset, DatasetDict]:
         """ """
@@ -132,7 +120,7 @@ class PseudoLabeledDatasetProcessor(BaseDatasetProcessor):
             
             inputs = np.array([d['processed::probability'] for d in dev], dtype=np.float32).reshape(-1, 1)
             # Here we try to use the mapped back values 
-            scores = _inverse_sigmoid_unli(np.array([d['label'] for d in dev], dtype=np.float32))
+            scores = _inverse_sigmoid_unli(np.array([d['label'] for d in dev], dtype=np.float32)) / 10000
             
             ist = IsotonicRegression()
             ist.fit(inputs, scores)
@@ -189,18 +177,6 @@ class PseudoLabeledDatasetProcessor(BaseDatasetProcessor):
     def _create_dataset(self, data: Iterable[dict]) -> Dataset:
         """ """
         
-        def _to_dist(scores: List[float | None]) -> List[float]:
-            dist_ = np.zeros((self._number_of_levels,), dtype=np.float32)
-            for s in scores:
-                if s is not None:
-                    dist_[self._label_bining(s)] += 1
-                else:
-                    # uninformative prior to be added
-                    dist_ = dist_ + (1 / self._number_of_levels)
-                    
-            # normalize the distribution
-            return (dist_ / np.sum(dist_)).tolist()
-            
         return Dataset.from_list([
             {
                 # "premise": item['premise'],
@@ -212,6 +188,7 @@ class PseudoLabeledDatasetProcessor(BaseDatasetProcessor):
                 "completion": self._template.get_completion_template(
                     answer=f" <|label_level_0|>"  # Because this label is always there
                 ),
-                "scores": _to_dist(item['pscores']),
+                # "scores": _to_dist(item['pscores']),
+                "scores": item['pscores'],
             } for item in data
         ])

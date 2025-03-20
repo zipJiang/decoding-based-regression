@@ -16,6 +16,9 @@ class BaseRankDict(Registrable, ABC):
     ):
         self._rank_dict = rank_dict
         
+    def __len__(self) -> int:
+        return len(self._rank_dict)
+        
     def get_rank_dict(self, tokenizer: PreTrainedTokenizer) -> Dict[int, Any]:
         return {tokenizer.convert_tokens_to_ids([token])[0]: value for token, value in self._rank_dict.items()}
     

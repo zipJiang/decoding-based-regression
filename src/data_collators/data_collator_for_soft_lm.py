@@ -55,10 +55,12 @@ class DataCollatorForSingleTokenSoftLM(
         self,
         *args,
         sigma: Optional[float] = 0.005,
+        lable_smoothing_factor: Optional[float] = 0.0,
         **kwargs
     ):
         super().__init__(*args, **kwargs)
         self.sigma = sigma
+        self.label_smoothing_factor = lable_smoothing_factor
         self.rank_dict = SingleLabelRankDict.from_tokenizer(self.tokenizer)
         _rank_dict = self.rank_dict.get_rank_dict(tokenizer=self.tokenizer)
         tuples = sorted(_rank_dict.items(), key=lambda x: x[1], reverse=False)
@@ -104,7 +106,10 @@ class DataCollatorForSingleTokenSoftLM(
             first_non_ignore_indices.unsqueeze(-1),
             self.level_ids,
         ] = torch.tensor(probs, dtype=torch.float16)
-        
+
+        # renormalize with the label_smoothing_factor
+        soft_labels = soft_labels * (1 - self.label_smoothing_factor) + self.label_smoothing_factor / vocab_size
+
         # again mask out the ignored_index
         batch['labels'] = soft_labels.masked_fill(~mask.unsqueeze(-1), self.ignore_index)
         
