@@ -46,7 +46,6 @@ class DefeasibleNLIDatasetProcessor(BaseDatasetProcessor):
                 "is_strengthener": x["UpdateType"] == "strengthener",
                 "prompt": get_prompt(x),
                 "update_prompt": get_update_prompt(x),
-                # TODO: add completion processing as well.
             }, remove_columns=dataset.column_names if isinstance(dataset, Dataset) else dataset[list(dataset.keys())[0]].column_names
         )
 

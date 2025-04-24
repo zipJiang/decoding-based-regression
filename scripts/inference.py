@@ -18,12 +18,12 @@ from src.chat_templates import UNLITemplate
 
 
 model = transformers.AutoModelForCausalLM.from_pretrained(
-    "ckpt/merged-dp3",
+    "Zhengping/conditional-probability-regression",
     torch_dtype="auto",
     attn_implementation="flash_attention_2",
 )
 tokenizer = transformers.AutoTokenizer.from_pretrained(
-    "ckpt/merged-dp3",
+    "Zhengping/conditional-probability-regression",
 )
 
 rank_dict = SingleLabelRankDict.from_tokenizer(tokenizer)
