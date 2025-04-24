@@ -7,6 +7,8 @@ from typing import Text, Optional, List, Iterable
 from pysat.formula import WCNF
 from pysat.examples.rc2 import RC2
 from .schema import Schema
+from accelerate import PartialState
+from accelerate.utils import gather_object
 from ..prob_scorers.base_prob_scorer import BaseProbScorer
 from .base_schema_worker import BaseSchemaWorker, SchemaOutcome
 
@@ -22,7 +24,11 @@ class BirdSchemaWorker(BaseSchemaWorker):
         super().__init__(prob_scorer=prob_scorer)
         
     @overrides
-    def _process_schema(self, schema: Schema) -> SchemaOutcome:
+    def _process_schema(
+        self,
+        schema: Schema,
+        partial_state: PartialState | None = None
+    ) -> SchemaOutcome:
         """ """
         
         schema = schema.copy()
@@ -69,9 +75,16 @@ class BirdSchemaWorker(BaseSchemaWorker):
             pbr["tag"]: pbr for pbr in prob_requests
         }
         
-        scores = self._prob_scorer(prob_requests)
+        with partial_state.split_between_processes(prob_requests) as distributed_prob_requests:
+            scores = self._prob_scorer(distributed_prob_requests)
+            scores = scores.tolist()
+
+        partial_state.wait_for_everyone()
+        scores = gather_object(scores)
+        scores = np.array(scores, dtype=np.float32).flatten().tolist()
+        
         for pbr, score in zip(prob_requests, scores):
-            pbr["score"] = score.item()
+            pbr["score"] = score
 
         def _combination(pool: List[List[Text]]) -> Iterable[List[Text]]:
             if len(pool) == 0:

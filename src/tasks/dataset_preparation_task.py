@@ -12,7 +12,7 @@ from ..dataset_processors import BaseDatasetProcessor
 class DatasetPreparationTask(BaseTask):
     """ """
     
-    __VERSION__ = "0.0.6"
+    __VERSION__ = "0.0.8"
 
     def __init__(
         self,

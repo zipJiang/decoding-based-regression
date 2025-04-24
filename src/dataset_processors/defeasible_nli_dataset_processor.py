@@ -5,7 +5,7 @@ from overrides import overrides
 import numpy as np
 from ..chat_templates import BaseTemplate
 from typing import Text, Union
-from datasets import Dataset, DatasetDict, load_dataset
+from datasets import Dataset, DatasetDict, load_dataset, concatenate_datasets
 from .base_dataset_processor import BaseDatasetProcessor
 from ..utils.transforms import _inverse_sigmoid_unli
 

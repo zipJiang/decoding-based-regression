@@ -2,6 +2,7 @@
 
 from overrides import overrides
 import evaluate
+import numpy as np
 from tasker import BaseTask
 from datasets import load_from_disk, load_dataset
 # from transformers.trainer_utils import EvalPrediction
@@ -15,6 +16,8 @@ except ImportError:
     import json
 import torch
 import logging
+from accelerate import PartialState
+from accelerate.utils import gather_object
 from typing import (
     Text,
     Dict,
@@ -40,7 +43,7 @@ logger.addHandler(console_handler)
 
 @BaseTask.register("evaluation")
 class EvaluationTask(BaseTask):
-    __VERSION__ = "0.0.12"
+    __VERSION__ = "0.1.0"
     
     __DEFEASIBLE_LIST__ = {
         "defeasible-atomic",
@@ -63,6 +66,8 @@ class EvaluationTask(BaseTask):
             dataset_name: load_from_disk(os.path.join(dataset_dir, "dataset", 'test'))
             for dataset_name, dataset_dir in dataset_map
         }
+        
+        self._partial_state = PartialState()
         
         def _parse_ckpt_dir(directory: Text) -> int:
             match = re.search(r"checkpoint-(\d+)", directory)
@@ -133,83 +138,249 @@ class EvaluationTask(BaseTask):
             model=self._peft_model,
             max_new_tokens=2,
             tokenizer=self._tokenizer,
-            device=0,
-            level_to_score_func=_level_to_score_func
+            device=self._partial_state.device.index,
+            level_to_score_func=_level_to_score_func,
+            torch_dtype=torch.bfloat16,
         )
+        # pipe = pipe.to(self._partial_state.device.index)
         spearman_evaluator = evaluate.load("src/metrics/decorel_regression.py", correlation_type="spearman")
         pearson_evaluator = evaluate.load("src/metrics/decorel_regression.py", correlation_type="pearson")
         accuracy_evaluator = evaluate.load("accuracy")
         
         result_dict = {}
         
-        for dataset_name, test_dataset in self._dataset_map.items():
-            inputs = [
-                datapiece['prompt'] + [
-                # {
-                #     "role": "user",
-                #     "content": datapiece["prompt"]
-                # },
-                {
-                    "role": "assistant",
-                    # TODO: Switch to the correct template class
-                    "content": "### Answer:"
-                }
-            ] for datapiece in test_dataset]
-        
-            results = [pipe(
-                ipt,
-                do_sample=False
-            ) for ipt in tqdm(inputs)]
+        def _distributed_inference(inputs_, pipe_):
+            """ """
+            with self._partial_state.split_between_processes(inputs_) as distributed_inputs:
+                process_id = self._partial_state.process_index
+                results = [pipe_(ipt, do_sample=False) for ipt in tqdm(distributed_inputs, desc=f"Process {process_id}", position=process_id, leave=True)]
+
+            self._partial_state.wait_for_everyone()
+            results = gather_object(results)
             
-            if dataset_name in self.__DEFEASIBLE_LIST__:
-                # This only works for defeasible evaluation
-                update_inputs = [
-                    datapiece['update_prompt'] + [{
+            return results
+        
+        for dataset_name, test_dataset in self._dataset_map.items():
+            if dataset_name == "hellaswag":
+                # hella_swag is special and needs to be handled differently
+                inputs_a = [
+                    datapiece['prompt_a'] + [
+                        {
+                            "role": "assistant",
+                            "content": "### Answer:"
+                        }
+                    ]
+                    for datapiece in test_dataset
+                ]
+                inputs_b = [
+                    datapiece['prompt_b'] + [
+                        {
+                            "role": "assistant",
+                            "content": "### Answer:"
+                        }
+                    ]
+                    for datapiece in test_dataset
+                ]
+                inputs_c = [
+                    datapiece['prompt_c'] + [
+                        {
+                            "role": "assistant",
+                            "content": "### Answer:"
+                        }
+                    ]
+                    for datapiece in test_dataset
+                ]
+                inputs_d = [
+                    datapiece['prompt_d'] + [
+                        {
+                            "role": "assistant",
+                            "content": "### Answer:"
+                        }
+                    ]
+                    for datapiece in test_dataset
+                ]
+                
+                # results_a = [
+                #     pipe(ipt, do_sample=False)
+                #     for ipt in tqdm(inputs_a)
+                # ]
+
+                results_a = _distributed_inference(inputs_a, pipe)
+                results_b = _distributed_inference(inputs_b, pipe)
+                results_c = _distributed_inference(inputs_c, pipe)
+                results_d = _distributed_inference(inputs_d, pipe)
+                
+                # results_b= [
+                #     pipe(ipt, do_sample=False)
+                #     for ipt in tqdm(inputs_b)
+                # ]
+                
+                # results_c = [
+                #     pipe(ipt, do_sample=False)
+                #     for ipt in tqdm(inputs_c)
+                # ]
+                
+                # results_d = [
+                #     pipe(ipt, do_sample=False)
+                #     for ipt in tqdm(inputs_d)
+                # ]
+                
+                if self._partial_state.is_main_process:
+                    results = [
+                        {
+                            "p_a": r_a[0],
+                            "p_b": r_b[0],
+                            "p_c": r_c[0],
+                            "p_d": r_d[0]
+                        } 
+                        for i, (r_a, r_b, r_c, r_d) in enumerate(zip(results_a, results_b, results_c, results_d))
+                    ]
+                    
+                    predictions = np.argmax(
+                        np.array(
+                            [[r['p_a']['score'], r['p_b']['score'], r['p_c']['score'], r['p_d']['score']] for r in results]
+                        ), axis=1
+                    )
+                    labels = test_dataset['label']
+                    accuracy_evaluator.compute(predictions=predictions, references=labels)
+                    
+                    result_dict[dataset_name] = {
+                        "results": results,
+                        "evaluation": {
+                            "accuracy": accuracy_evaluator.compute(predictions=predictions, references=labels)
+                        }
+                    }
+                
+            elif dataset_name == "copa":
+                # Though similar, COPA is different from UNLI, as it replaces inputs instead
+                # of appending them
+                inputs_a = [
+                    datapiece['prompt_a'] + [
+                        {
+                            "role": "assistant",
+                            "content": "### Answer:"
+                        }
+                    ]
+                    for datapiece in test_dataset
+                ]
+                
+                inputs_b = [
+                    datapiece['prompt_b'] + [
+                        {
+                            "role": "assistant",
+                            "content": "### Answer:"
+                        }
+                    ]
+                    for datapiece in test_dataset
+                ]
+                
+                # results_a = [
+                #     pipe(ipt, do_sample=False)
+                #     for ipt in tqdm(inputs_a)
+                # ]
+                
+                # results_b = [
+                #     pipe(ipt, do_sample=False)
+                #     for ipt in tqdm(inputs_b)
+                # ]
+                
+                results_a = _distributed_inference(inputs_a, pipe)
+                results_b = _distributed_inference(inputs_b, pipe)
+                
+                if self._partial_state.is_main_process:
+                    
+                    results = [
+                        {
+                            "p_a": r_a[0],
+                            "p_b": r_b[0]
+                        }
+                        for r_a, r_b in zip(results_a, results_b)
+                    ]
+                    
+                    result_dict[dataset_name] = {
+                        "results": results,
+                        "evaluation": {
+                            "accuracy": accuracy_evaluator.compute(
+                                predictions=[int(r['p_b']['score'] - r['p_a']['score'] > 0) for r in results],
+                                references=test_dataset['more_likely_index']
+                            )
+                        }
+                    }
+                
+            else:
+                inputs = [
+                    datapiece['prompt'] + [
+                    # {
+                    #     "role": "user",
+                    #     "content": datapiece["prompt"]
+                    # },
+                    {
                         "role": "assistant",
                         # TODO: Switch to the correct template class
                         "content": "### Answer:"
-                    }] for datapiece in test_dataset
-                ]
-                update_results = [pipe(
-                    ipt,
-                    do_sample=False
-                ) for ipt in tqdm(update_inputs)]
-                
-                result_dict[dataset_name] = {
-                    "results": [
-                        {
-                            "original": r[0],
-                            "update": u[0]
-                        } for r, u in zip(results, update_results)
-                    ],
-                    "evaluation": {
-                        # defeasible 0 for weakener, 1 for strengthener
-                        "accuracy": accuracy_evaluator.compute(
-                            predictions=[int(u[0]['score'] - r[0]['score'] > 0) for r, u in zip(results, update_results)],
-                            references=test_dataset['is_strengthener']
-                        ),
                     }
-                }
+                ] for datapiece in test_dataset]
             
-            # This only works for non-defeasible evaluation
-            else:
-                result_dict[dataset_name] = {
-                    "results": results,
-                    "evaluation": {
-                        "spearman": spearman_evaluator.compute(
-                            predictions=[r[0]['score'] for r in results],
-                            # references=load_dataset("Zhengping/UNLI", split='test')['label']
-                            # references=[datapiece['scores'] for datapiece in self._test_dataset][0:3040:30]
-                            references=test_dataset['scores']
-                        ),
-                        "pearson": pearson_evaluator.compute(
-                            predictions=[r[0]['score'] for r in results],
-                            # references=load_dataset("Zhengping/UNLI", split='test')['label']
-                            # references=[datapiece['scores'] for datapiece in self._test_dataset][0:3040:30]
-                            references=test_dataset['scores']
-                        )
+                # results = [pipe(
+                #     ipt,
+                #     do_sample=False
+                # ) for ipt in tqdm(inputs)]
+
+                results = _distributed_inference(inputs, pipe)
+                
+                if dataset_name in self.__DEFEASIBLE_LIST__:
+                    # This only works for defeasible evaluation
+                    update_inputs = [
+                        datapiece['update_prompt'] + [{
+                            "role": "assistant",
+                            # TODO: Switch to the correct template class
+                            "content": "### Answer:"
+                        }] for datapiece in test_dataset
+                    ]
+                    # update_results = [pipe(
+                    #     ipt,
+                    #     do_sample=False
+                    # ) for ipt in tqdm(update_inputs)]
+                    
+                    update_results = _distributed_inference(update_inputs, pipe)
+                    
+                    if self._partial_state.is_main_process:
+                        
+                        result_dict[dataset_name] = {
+                            "results": [
+                                {
+                                    "original": r[0],
+                                    "update": u[0]
+                                } for r, u in zip(results, update_results)
+                            ],
+                            "evaluation": {
+                                # defeasible 0 for weakener, 1 for strengthener
+                                "accuracy": accuracy_evaluator.compute(
+                                    predictions=[int(u[0]['score'] - r[0]['score'] > 0) for r, u in zip(results, update_results)],
+                                    references=test_dataset['is_strengthener']
+                                ),
+                            }
+                        }
+                
+                # This only works for non-defeasible evaluation
+                else:
+                    result_dict[dataset_name] = {
+                        "results": results,
+                        "evaluation": {
+                            "spearman": spearman_evaluator.compute(
+                                predictions=[r[0]['score'] for r in results],
+                                # references=load_dataset("Zhengping/UNLI", split='test')['label']
+                                # references=[datapiece['scores'] for datapiece in self._test_dataset][0:3040:30]
+                                references=test_dataset['scores']
+                            ),
+                            "pearson": pearson_evaluator.compute(
+                                predictions=[r[0]['score'] for r in results],
+                                # references=load_dataset("Zhengping/UNLI", split='test')['label']
+                                # references=[datapiece['scores'] for datapiece in self._test_dataset][0:3040:30]
+                                references=test_dataset['scores']
+                            )
+                        }
                     }
-                }
             
         return result_dict
 
@@ -223,6 +394,29 @@ class EvaluationTask(BaseTask):
         #     json.dump(outputs, file_, ensure_ascii=False, indent=4)
         
         # we separate the result into different files
-        for dataset_name, result in outputs.items():
-            with open(os.path.join(self._output_dir, f"{dataset_name}.json"), 'w', encoding='utf-8') as file_:
-                json.dump(result, file_, ensure_ascii=False, indent=4)
+        @self._partial_state.on_main_process
+        def _r():
+            for dataset_name, result in outputs.items():
+                with open(os.path.join(self._output_dir, f"{dataset_name}.json"), 'w', encoding='utf-8') as file_:
+                    json.dump(result, file_, ensure_ascii=False, indent=4)
+
+        _r()
+        
+    @overrides
+    def _clean_up(self) -> None:
+        """ iteratively remove all the files in the output directory """
+        
+        @self._partial_state.on_main_process
+        def remove_dir(directory: Text) -> None:
+            if not os.path.exists(directory):
+                return
+            for file in os.listdir(directory):
+                file_path = os.path.join(directory, file)
+                if os.path.isdir(file_path):
+                    remove_dir(file_path)
+                else:
+                    os.remove(file_path)
+            os.rmdir(directory)
+            
+        remove_dir(self._output_dir)
+        

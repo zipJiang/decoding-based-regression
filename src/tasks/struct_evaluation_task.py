@@ -4,6 +4,8 @@
 from overrides import overrides
 import evaluate
 from tasker import BaseTask
+from accelerate.utils import gather_object
+from accelerate import PartialState
 from datasets import load_from_disk, load_dataset
 # from transformers.trainer_utils import EvalPrediction
 from tqdm import tqdm
@@ -74,6 +76,8 @@ class StructuralEvaluationTask(BaseTask):
     ):
         super().__init__(output_dir=output_dir)
         self._input_dir = input_dir
+        self._partial_state = PartialState()
+        # print(self._partial_state)
         self._num_labels = num_labels
         self._tasks = tasks
         
@@ -144,7 +148,7 @@ class StructuralEvaluationTask(BaseTask):
                 model=_peft_model,
                 max_new_tokens=2,
                 tokenizer=_tokenizer,
-                device=0,
+                device=self._partial_state.device.index,
                 level_to_score_func=_level_to_score_func
             )
             
@@ -200,7 +204,7 @@ class StructuralEvaluationTask(BaseTask):
                 for schema, item in zip(schemas, data):
                     schema.metadata["answer"] = conversion_map[schema.metadata["answer"]]
 
-                outcomes = schema_worker(schemas)
+                outcomes = schema_worker(schemas, partial_state=self._partial_state)
                 
                 task_results[taskname] = {
                     "accuracy": _accuracy(outcomes),
@@ -237,7 +241,8 @@ class StructuralEvaluationTask(BaseTask):
                 schemas = [Schema.from_dict(item['schema']) for item in tqdm(data)]
                 for schema, item in zip(schemas, data):
                     schema.metadata["answer"] = item["ground_truth"]
-                outcomes = schema_worker(schemas)
+                    
+                outcomes = schema_worker(schemas, partial_state=self._partial_state)
                 
                 task_results[taskname] = {
                     "accuracy": _accuracy(outcomes),
@@ -248,7 +253,31 @@ class StructuralEvaluationTask(BaseTask):
     
     @overrides
     def _write(self, outputs):
+        
+        # self._partial_state.on_main_process():
+        @self._partial_state.on_main_process
+        def _r():
+            for taskname, outcomes in outputs.items():
+                with open(os.path.join(self._output_dir, f"{taskname}.jsonl"), 'w') as file_:
+                    json.dump(outcomes, file_, indent=4)
 
-        for taskname, outcomes in outputs.items():
-            with open(os.path.join(self._output_dir, f"{taskname}.jsonl"), 'w') as file_:
-                json.dump(outcomes, file_, indent=4)
+        _r()
+        
+    @overrides
+    def _clean_up(self) -> None:
+        """ iteratively remove all the files in the output directory """
+        
+        @self._partial_state.on_main_process
+        def remove_dir(directory: Text) -> None:
+            if not os.path.exists(directory):
+                return
+            for file in os.listdir(directory):
+                file_path = os.path.join(directory, file)
+                if os.path.isdir(file_path):
+                    remove_dir(file_path)
+                else:
+                    os.remove(file_path)
+            os.rmdir(directory)
+            
+        remove_dir(self._output_dir)
+        

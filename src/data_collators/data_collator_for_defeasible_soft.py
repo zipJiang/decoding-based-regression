@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from dataclasses import dataclass, field
 from typing import (
-    Union, Optional, Any
+    Union, Optional, Any, Dict, Text, List
 )
 from ..rank_dicts import BaseRankDict, SingleLabelRankDict
 from .data_collator_for_regression import DataCollatorForSFTRegressionMixin
@@ -19,7 +19,21 @@ from transformers.data.data_collator import (
 from trl import DataCollatorForCompletionOnlyLM
 from ..utils.transforms import _discretize_gaussian
 
-class DataCollatorForSingleTokenSoftLM(
+
+def _deconstruct(example) -> list[dict[str, Any]]:
+    """ """
+    return [
+        {
+            key: val for key, val in example.items() if not key.startswith('alternate_')
+            # is_defeasible only goes to the first batch
+        },
+        {
+            key.replace('alternate_', ''): val for key, val in example.items() if key.startswith('alternate_')
+        }
+    ]
+
+
+class DataCollatorForDefeasibleSoftLM(
     DataCollatorForSFTRegressionMixin,
     DataCollatorForCompletionOnlyLM
 ):
@@ -54,12 +68,10 @@ class DataCollatorForSingleTokenSoftLM(
     def __init__(
         self,
         *args,
-        sigma: Optional[float] = 0.005,
         label_smoothing_factor: Optional[float] = 0.0,
         **kwargs
     ):
         super().__init__(*args, **kwargs)
-        self.sigma = sigma
         self.label_smoothing_factor = label_smoothing_factor
         self.rank_dict = SingleLabelRankDict.from_tokenizer(self.tokenizer)
         _rank_dict = self.rank_dict.get_rank_dict(tokenizer=self.tokenizer)
@@ -67,15 +79,13 @@ class DataCollatorForSingleTokenSoftLM(
         
         self.level_ids = torch.tensor([t[0] for t in tuples], dtype=torch.int64)
         self.levels = np.array([t[1] for t in tuples])
-    
-    def torch_call(self, examples: list[Union[list[int], Any, dict[str, Any]]]) -> dict[str, Any]:
-        batch = super().torch_call(examples)
         
-        # at this point we have the input_ids, attention_mask, and labels
-        # input_ids: [batch_size, seq_len]
-        # attention_mask: [batch_size, seq_len]
-        # labels: [batch_size, seq_len]
-        # scores: [batch_size]
+    def _modify_batch(
+        self,
+        batch,
+        examples
+    ) -> Dict[Text, Any]:
+        """ """
         assert 'scores' in examples[0], "The scores field is not found in the examples."
         # from probs create a soft distribution [batch_size, seq_len, vocab_size]
         labels = batch.pop("labels")
@@ -88,18 +98,7 @@ class DataCollatorForSingleTokenSoftLM(
         _labels = labels.masked_fill(~mask, 0)
         soft_labels = torch.nn.functional.one_hot(_labels, num_classes=vocab_size).to(dtype=torch.float16)
             
-        
-        if not isinstance(examples[0]['scores'], list):
-            scores = np.array([example['scores'] for example in examples])
-            probs = _discretize_gaussian(
-                mean=scores / 10000,
-                std=self.sigma,
-                levels=self.levels[np.newaxis, :]
-            )  # [batch_size, num_levels]
-            
-        else:
-            # We only need to load and insert the labels
-            probs = np.array([example['scores'] for example in examples])
+        probs = np.array([example['scores'] for example in examples])
         
         soft_labels[
             torch.arange(soft_labels.shape[0]).unsqueeze(-1),
@@ -112,5 +111,20 @@ class DataCollatorForSingleTokenSoftLM(
 
         # again mask out the ignored_index
         batch['labels'] = soft_labels.masked_fill(~mask.unsqueeze(-1), self.ignore_index)
+        
+        return batch
+    
+    def torch_call(self, examples: list[Union[list[int], Any, dict[str, Any]]]) -> dict[str, Any]:
+        
+        # batch = super().torch_call(examples)
+        # two batches can be formulated from the examples
+        if 'is_defeasible' in examples[0]:
+            examples = [{**example, "alternate_is_defeasible": example['is_defeasible']} for example in examples]
+        examples = [e for example in examples for e in _deconstruct(example)]
+        batch = super().torch_call(examples)
+        batch = self._modify_batch(batch, examples)
+        
+        # for k, v in batch.items():
+        #     print(k, v.shape)
         
         return batch

@@ -48,7 +48,7 @@ class TrainSFTRegressionTask(BaseTask):
         label_smoothing_factor: Optional[float] = 0.0,
         loss_temperature: Optional[float] = 1.0,
         reverse_kl_loss: Optional[bool] = False,
-        std: float = 0.0,
+        std: float = 0.05,
         force_diffuse: bool = False,
         is_chat: bool = False
     ):
@@ -66,13 +66,6 @@ class TrainSFTRegressionTask(BaseTask):
         self._std = std
         
         self._partial_state = PartialState()
-        
-        self._train_dataset = load_from_disk(os.path.join(self._input_dir, "dataset", 'train'))
-        self._train_dataset = self._train_dataset.map(lambda x: {"messages": x['prompt'] + x['completion']}, remove_columns=['prompt', 'completion'])
-        # self._train_dataset = self._train_dataset.skip(50000)
-        self._eval_dataset = load_from_disk(os.path.join(self._input_dir, "dataset", 'validation'))
-        self._eval_dataset = self._eval_dataset.map(lambda x: {"messages": x['prompt'] + x['completion']}, remove_columns=['prompt', 'completion'])
-        
         # print(self._train_dataset[0])
         
         self._peft_config = LoraConfig(
@@ -96,66 +89,82 @@ class TrainSFTRegressionTask(BaseTask):
         
         self._tokenizer = get_tokenizer(self._model_name)
         self._rank_dict = SingleLabelRankDict.from_tokenizer(self._tokenizer)
-        tuples = sorted(self._rank_dict.items(), key=lambda x: x[1], reverse=False)
+        tuples = sorted(self._rank_dict.get_rank_dict(self._tokenizer).items(), key=lambda x: x[1], reverse=False)
         self.levels = np.array([t[1] for t in tuples])
-        
 
-        def _score_map(example) -> Dict[Text, Any]:
-            """ """
-            # TODO: map the score to the target dist
-            number_of_levels = len(self._rank_dict)
-            scores = example['scores']
-            if not isinstance(scores, list):
-                scores = [scores]
+        # def _score_map(example) -> Dict[Text, Any]:
+        #     """ """
+        #     # TODO: map the score to the target dist
             
-            # binning = lambda x: max(
-            #     min(
-            #         int(x * self._number_of_levels / 10000), self._number_of_levels - 1
-            #     ), 0
-            # )
+        #     # print('-' * 100)
+        #     # print(example['scores'])
             
-            filtered_scores = [s for s in scores if s is not None] 
-            if len(filtered_scores) == 0:
-                return np.ones((self._number_of_levels,), dtype=np.float32) / self._number_of_levels
+        #     number_of_levels = len(self._rank_dict)
+        #     scores = example['scores']
+        #     if not isinstance(scores, list):
+        #         scores = [scores]
+                
+        #     num_scores = len(scores)
             
-            scores = _discretize_gaussian(
-                mean=filtered_scores,
-                std=self._std,
-                levels=self.levels[np.newaxis, :]
-            )
+        #     # binning = lambda x: max(
+        #     #     min(
+        #     #         int(x * self._number_of_levels / 10000), self._number_of_levels - 1
+        #     #     ), 0
+        #     # )
             
-            scores = np.mean(scores, axis=0) * len(filtered_scores) + 0.1 / number_of_levels * (number_of_levels - len(filtered_scores))
-            # renormalize
-            return {
-                "scores": (scores / np.sum(scores)).tolist(),
-            }
+        #     filtered_scores = [s for s in scores if s is not None] 
+        #     if len(filtered_scores) == 0:
+        #         return np.ones((self._number_of_levels,), dtype=np.float32) / self._number_of_levels
             
-        self._score_loss_func = None
-        if score_loss_func is not None:
-            # print(self._rank_dict.get_rank_dict(self._tokenizer))
-            self._score_loss_func = score_loss_func.construct(
-                rank_dict=self._rank_dict.get_rank_dict(self._tokenizer)
-            )
-            self._score_loss_func.to(device=self._partial_state.device)
+        #     scores = _discretize_gaussian(
+        #         mean=np.array(filtered_scores, dtype=np.float32),
+        #         std=self._std,
+        #         levels=self.levels[np.newaxis, :]
+        #     )
             
-            # TODO: If train with other labels, we need to resolve multiple score circumstances.
+        #     scores = np.mean(scores, axis=0) * len(filtered_scores) + 0.1 / number_of_levels * (num_scores - len(filtered_scores))
             
-        self._compute_loss_func = None
-        if force_diffuse:
-            self._compute_loss_func = SoftTokenLoss(
-                temperature=self._loss_temperature,
-                reverse_kl_loss=self._reverse_kl_loss,
-            )
+        #     label_index = np.argmax(scores)
+        #     new_completion = [
+        #         {
+        #             **example["completion"][0],
+        #             "content": example["completion"][0]["content"].replace("label_level_0", f"label_level_{label_index}")
+        #         }
+        #     ]
             
-            # convert the score to the target dist
-            self._train_dataset = self._train_dataset.map(
-                _score_map,
-                batched=False,
-            )
-            self._eval_dataset = self._eval_dataset.map(
-                _score_map,
-                batched=False,
-            )
+        #     # renormalize
+        #     scores = (scores / np.sum(scores)).tolist()
+        #     # print(scores)
+        #     # print('-' * 100)
+        #     return {
+        #         "completion": new_completion,
+        #         "scores": scores,
+        #     }
+            
+        with self._partial_state.main_process_first():
+            self._train_dataset = load_from_disk(os.path.join(self._input_dir, "dataset", 'train'))
+            self._eval_dataset = load_from_disk(os.path.join(self._input_dir, "dataset", 'validation'))
+            
+            self._score_loss_func = None
+            self._compute_loss_func = None
+            # if force_diffuse:
+            #     self._compute_loss_func = SoftTokenLoss(
+            #         temperature=self._loss_temperature,
+            #         reverse_kl_loss=self._reverse_kl_loss,
+            #     )
+                
+            #     # convert the score to the target dist
+            #     self._train_dataset = self._train_dataset.map(
+            #         _score_map,
+            #         batched=False,
+            #     )
+            #     self._eval_dataset = self._eval_dataset.map(
+            #         _score_map,
+            #         batched=False,
+            #     )
+                
+            self._train_dataset = self._train_dataset.map(lambda x: {"messages": x['prompt'] + x['completion']}, remove_columns=['prompt', 'completion'])
+            self._eval_dataset = self._eval_dataset.map(lambda x: {"messages": x['prompt'] + x['completion']}, remove_columns=['prompt', 'completion'])
         
         self._trainer = DecoderBasedRegressionTrainer(
             model=self._model,
@@ -170,18 +179,26 @@ class TrainSFTRegressionTask(BaseTask):
                 tokenizer=self._tokenizer,
                 # Use default sigma
             ),
+            # accelerator_config="configs/accelerate/config.yaml",
             formatting_func=None if self._is_chat else lambda x: f"{x['prompt']}\n\n{x['completion']}",
             processing_class=self._tokenizer,
             train_dataset=self._train_dataset,
             eval_dataset=self._eval_dataset,
             args=SFTConfig(
-                max_seq_length=512,
+                # accelerator_config="/home/zjiang31/.cache/huggingface/accelerate/default_config.yaml",
+                # deepspeed="configs/accelerate/ds_config.json",
+                # per_device_train_batch_size=16,
+                # per_device_train_batch_size=4,
+                # gradient_accumulation_steps=2,
+                bf16=True,
+                dataloader_num_workers=4,
+                max_seq_length=256,
                 metric_for_best_model="eval_loss",
                 learning_rate=self._learning_rate,
-                num_train_epochs=3,
+                num_train_epochs=4,
                 eval_strategy="epoch",
                 output_dir=self._output_dir,
-                save_total_limit=3,
+                save_total_limit=2,
                 save_strategy="epoch",
                 report_to="wandb",
                 warmup_steps=5000,
@@ -204,3 +221,22 @@ class TrainSFTRegressionTask(BaseTask):
     @overrides
     def _write(self, outputs):
         ...
+        
+    @overrides
+    def _clean_up(self) -> None:
+        """ iteratively remove all the files in the output directory """
+        
+        @self._partial_state.on_main_process
+        def remove_dir(directory: Text) -> None:
+            if not os.path.exists(directory):
+                return
+            for file in os.listdir(directory):
+                file_path = os.path.join(directory, file)
+                if os.path.isdir(file_path):
+                    remove_dir(file_path)
+                else:
+                    os.remove(file_path)
+            os.rmdir(directory)
+            
+        remove_dir(self._output_dir)
+        

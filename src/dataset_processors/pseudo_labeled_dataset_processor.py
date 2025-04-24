@@ -25,24 +25,28 @@ from ..utils.transforms import _inverse_sigmoid_unli
 class PseudoLabeledDatasetProcessor(BaseDatasetProcessor):
     def __init__(
         self,
-        number_of_levels: int,
+        # number_of_levels: int,
         template: BaseTemplate,
         data_dir: Text,
         model_names: List[Text],
         dataset_names: List[Text],
         include_other_tests: bool = False,
         with_system_messages: bool = False,
+        unli_upsample: int = 1,
+        trust_nli_label: bool = False
     ):
         """ """
         super().__init__(template=template)
         self._data_dir = data_dir
         self._template = template
-        self._number_of_levels = number_of_levels
+        # self._number_of_levels = number_of_levels
         # Test are added to dev
         self._include_other_tests = include_other_tests
         self._with_system_messages = with_system_messages
         self._model_names = [m.split('/')[-1] for m in model_names]
         self._dataset_names = dataset_names
+        self._unli_upsample = unli_upsample
+        self._trust_nli_label = trust_nli_label
 
         assert "unli" not in self._dataset_names, "UNLI dataset should not be in the dataset names."
         
@@ -57,33 +61,34 @@ class PseudoLabeledDatasetProcessor(BaseDatasetProcessor):
         unli_test = datasets.load_dataset("Zhengping/UNLI", split='test')
         unli_train = datasets.load_dataset("Zhengping/UNLI", split='train')
         
-        for idx, item in tqdm(enumerate(unli_train), desc="Processing UNLI Train"):
-            identifier = ("unli", idx, "train", None)
-            # if identifier in train_data_instance_map:
-            #     train_data_instance_map[identifier]["label"] = item['label']
-            if identifier not in train_data_instance_map:
-                train_data_instance_map[identifier] = {
-                    "premise": item['premise'],
-                    "hypothesis": item['hypothesis'],
-                    "pscores": [item['label']]
-                }
-                
-            else:
-                train_data_instance_map[identifier]["pscores"].append(item['label'])
-                
-        for idx, item in tqdm(enumerate(unli_dev), desc="Processing UNLI Test"):
-            identifier = ("unli", idx, "test", None)
-            # if identifier in test_data_instance_map:
-            #     test_data_instance_map[identifier]["label"] = item['label']
-            if identifier not in dev_data_instance_map:
-                dev_data_instance_map[identifier] = {
-                    "premise": item['premise'],
-                    "hypothesis": item['hypothesis'],
-                    "pscores": [item['label']]
-                }
-                
-            else:
-                dev_data_instance_map[identifier]["pscores"].append(item['label'])
+        for sample_round in range(self._unli_upsample):
+            for idx, item in tqdm(enumerate(unli_train), desc=f"Processing UNLI Train ({sample_round})"):
+                identifier = (f"unli-{sample_round}", idx, "train", None)
+                # if identifier in train_data_instance_map:
+                #     train_data_instance_map[identifier]["label"] = item['label']
+                if identifier not in train_data_instance_map:
+                    train_data_instance_map[identifier] = {
+                        "premise": item['premise'],
+                        "hypothesis": item['hypothesis'],
+                        "pscores": [item['label']]
+                    }
+                    
+                else:
+                    train_data_instance_map[identifier]["pscores"].append(item['label'])
+                    
+            for idx, item in tqdm(enumerate(unli_dev), desc=f"Processing UNLI Dev ({sample_round})"):
+                identifier = (f"unli-{sample_round}", idx, "dev", None)
+                # if identifier in test_data_instance_map:
+                #     test_data_instance_map[identifier]["label"] = item['label']
+                if identifier not in dev_data_instance_map:
+                    dev_data_instance_map[identifier] = {
+                        "premise": item['premise'],
+                        "hypothesis": item['hypothesis'],
+                        "pscores": [item['label']]
+                    }
+                    
+                else:
+                    dev_data_instance_map[identifier]["pscores"].append(item['label'])
                 
         def _fix_proba(ist, items):
             # for item in items:
@@ -96,11 +101,21 @@ class PseudoLabeledDatasetProcessor(BaseDatasetProcessor):
             proba = np.clip(
                 ist.predict(np.array(proba).reshape(-1, 1)),
                 a_min=0,
-                a_max=10000
+                a_max=1
             )
             
             for idx, item in enumerate(items):
-                if idx in none_indices:
+                if self._trust_nli_label and (
+                    item.get('gold', None) == "entailment" or
+                    item.get('label', None) == 0
+                ):
+                    item['processed::probability'] = 1
+                elif self._trust_nli_label and (
+                    item.get('gold', None) == "contradiction" or
+                    item.get('label', None) == 2
+                ):
+                    item['processed::probability'] = 0
+                elif idx in none_indices:
                     item['processed::probability'] = None
                 else:
                     item['processed::probability'] = proba[idx]

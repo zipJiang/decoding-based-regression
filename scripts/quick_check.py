@@ -9,7 +9,10 @@ __DTST__ = [
     "entailmentbank",
     "ecare",
     "defeasible-snli",
-    "defeasible-atomic"
+    "defeasible-atomic",
+    "copa",
+    "hellaswag",
+    "circa"
 ]
 
 
@@ -22,9 +25,14 @@ def main(
     
     all_results = [(
         "Model",
-        "Reg",
-        "Scale",
-        "Num Labels",
+        # "Reg",
+        # "Scale",
+        # "Label Smoothing",
+        # "Std",
+        # "Temp",
+        # "KL Direction",
+        # "Num Labels",
+        # "Trust NLI",
         *__DTST__
     )]
     
@@ -37,18 +45,30 @@ def main(
             return '-'
         with open(os.path.join(input_path, subdir, f"{dtst}.json"), 'r') as f:
             data = json.load(f)
-            if dtst.startswith("defeasible"):
-                return t3(data['evaluation']['accuracy']["accuracy"])
+            # if dtst.startswith("defeasible"):
+            #     return t3(data['evaluation']['accuracy']["accuracy"])
+            if 'accuracy' in data['evaluation']:
+                return t3(data['evaluation']['accuracy']['accuracy'])
             return t3(data['evaluation']['spearman']['correlation'])
     
     for subdir in os.listdir(input_path):
         # if subdir.startswith("Qwen2.5-14B"):
+        
+        # skip all old fields
+        if not "temp" in subdir:
+            continue
+
         fields = subdir.split("::")
         model_name = fields[0]
         num_labels = int(fields[1][3:])
-        reg = fields[2][4:]
-        reg = '-' if reg == 'null' else reg
-        scale = '-' if len(fields) == 3 else int(fields[3][6:])
+        # reg = fields[2][4:]
+        temp = fields[2][5:]
+        # reg = '-' if reg == 'null' else reg
+        kl_direction = fields[3][11:]
+        std = fields[4][4:]
+        lsf = fields[5][4:]
+        trust = int(len(fields) >= 7)
+        # scale = '-' if len(fields) == 3 else int(fields[3][6:])
         
         #     data = json.load(f)
             # print('---')
@@ -62,10 +82,18 @@ def main(
             #     (model_name, reg, scale, num_labels, t3(data['unli']['evaluation']['spearman']['correlation']), t3(data['gnli']['evaluation']['spearman']['correlation']), t3(data['entailmentbank']['evaluation']['spearman']['correlation']), t3(data["ecare"]['evaluation']['spearman']['correlation']))
             # )
         all_results.append((
-            model_name,
-            reg,
-            scale,
-            num_labels,
+            # model_name,
+            # reg,
+            # scale,
+            # num_labels,
+            # model_name,
+            # lsf,
+            # std,
+            # temp,
+            # kl_direction,
+            # num_labels,
+            # trust,
+            subdir,
             *[enquire_eval(dtst, subdir) for dtst in __DTST__]
         ))
             

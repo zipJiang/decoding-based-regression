@@ -19,13 +19,20 @@ class DataCollatorForSFTRegressionMixin:
         for e in examples:
             e.pop('text', None)
             e.pop('messages', None)
-        
+
         batch = super().torch_call(examples)
+
         # TODO: Making this more general and compatible with different data-types
-        if 'scores' not in examples[0]:
-            return batch
+        # if 'scores' not in examples[0]:
+        #     return batch
         
-        batch['scores'] = torch.tensor([example['scores'] for example in examples], dtype=torch.bfloat16)
+        if 'scores' in examples[0]:
+            batch['scores'] = torch.tensor([example['scores'] for example in examples], dtype=torch.float32)
+
+        if 'is_defeasible' in examples[0]:
+            batch['is_defeasible'] = torch.tensor(
+                [example['is_defeasible'] for example in examples], dtype=torch.bool
+            )
         
         return batch
     

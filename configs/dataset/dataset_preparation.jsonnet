@@ -1,6 +1,8 @@
 local number_of_levels = std.parseInt(std.extVar("NUM_LABELS"));
 local with_other_tests = std.parseInt(std.extVar("WITH_OTHER_TESTS")) == 1;
 
+local _convert(x) = if x == "defeasible-pseudo-label" then "defeasible-pseudo-label" + "-" + std.extVar("UPSAMPLE") + "-" + std.extVar("DOWNSAMPLE") else x;
+
 local all_configs = {
     "unli": {
         type: "unli",
@@ -39,7 +41,7 @@ local all_configs = {
     },
     "pseudo-label": {
         type: "pseudo-label",
-        number_of_levels: number_of_levels,
+        // number_of_levels: number_of_levels,
         template: {
             type: "unli"
         },
@@ -54,8 +56,80 @@ local all_configs = {
             "anli",
             "wanli"
         ],
-        include_other_tests: with_other_tests
-    }
+        include_other_tests: with_other_tests,
+        unli_upsample: std.parseInt(std.extVar("UPSAMPLE")),
+    },
+    "defeasible-training": {
+        type: "defeasible-training",
+        template: {
+            type: "unli"
+        },
+        delta_nli_subsets: [
+            "atomic",
+            "snli"
+        ],
+        seed: 2265,
+        mixed_dev: true,
+    },
+    "defeasible-pseudo-label": {
+        type: "defeasible-pseudo-label",
+        template: {
+            type: "unli"
+        },
+        data_dir: "data/confidence_aggregate",
+        delta_nli_subsets: [
+            "atomic",
+            "snli"
+        ],
+        dataset_names: [
+            "anli",
+            "wanli"
+        ],
+        up_sample: std.parseInt(std.extVar("UPSAMPLE")),
+        down_sample: std.parseInt(std.extVar("DOWNSAMPLE")),
+        seed: 42,
+        mixed_dev: with_other_tests
+    },
+    "pseudo-label-trust": {
+        type: "pseudo-label",
+        // number_of_levels: number_of_levels,
+        template: {
+            type: "unli"
+        },
+        data_dir: "data/pseudo-labeled",
+        model_names: [
+            "DeepSeek/DeepSeek-R1-Distill-Qwen-32B",
+            "meta-llama/Llama-3.3-70B-Instruct",
+            "Qwen/Qwen2.5-72B-Instruct-AWQ",
+            "Qwen/QwQ-32B",
+        ],
+        dataset_names: [
+            "anli",
+            "wanli"
+        ],
+        include_other_tests: with_other_tests,
+        unli_upsample: std.parseInt(std.extVar("UPSAMPLE")),
+        trust_nli_label: true
+    },
+    "copa": {
+        type: "copa",
+        template: {
+            type: "unli"
+        },
+    },
+    "hellaswag": {
+        type: "hellaswag",
+        template: {
+            type: "unli"
+        },
+    },
+    "circa": {
+        type: "circa",
+        datapath: "data/circa.jsonl",
+        template: {
+            type: "unli"
+        },
+    },
 };
 
 local get_dataset_processor(task_name) = 
@@ -64,6 +138,13 @@ local get_dataset_processor(task_name) =
 
 {
     type: "dataset-preparation",
-    output_dir: "task_outputs/dataset/" + std.extVar("TASK_NAME") + (if std.startsWith(std.extVar("TASK_NAME"), "defeasible") then "" else "-" + number_of_levels),
+    output_dir: "task_outputs/dataset/" + _convert(std.extVar("TASK_NAME")) + (
+        if std.startsWith(std.extVar("TASK_NAME"), "defeasible")
+        || std.startsWith(std.extVar("TASK_NAME"), "pseudo")
+        || std.startsWith(std.extVar("TASK_NAME"), "copa")
+        || std.startsWith(std.extVar("TASK_NAME"), "hellaswag")
+        || std.startsWith(std.extVar("TASK_NAME"), "circa")
+        then "" else "-" + number_of_levels
+    ),
     dataset_processor: get_dataset_processor(std.extVar("TASK_NAME")),
 }

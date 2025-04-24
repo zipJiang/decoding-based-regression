@@ -5,10 +5,13 @@ local num_labels = std.parseInt(std.extVar("NUM_LABELS"));
 local standard_deviation = std.extVar("STANDARD_DEVIATION");
 local label_smoothing_factor = std.extVar("LABEL_SMOOTHING_FACTOR");
 local trust = std.parseInt(std.extVar("TRUST")) == 1;
+// local trust = false;
+local margin = std.parseJson(std.extVar("MARGIN"));
+local scale_factor = std.parseJson(std.extVar("SCALE_FACTOR"));
 
 {
     type: "evaluation",
-    input_dir: "./task_outputs/training/sft-regression/" + model_stem + "::nl=" + num_labels + "::temp=" + temperature + "::reverse_kl=" + reverse_kl + "::std=" + standard_deviation + "::lsf=" + label_smoothing_factor + (if trust then "::trust" else ""),
+    input_dir: "./task_outputs/training/defeasible-regression/" + model_stem + "::nl=" + num_labels + "::temp=" + std.extVar("TEMPERATURE") + "::reverse_kl=" + std.extVar("REVERSE_KL") + "::std=" + std.extVar("STANDARD_DEVIATION") + "::lsf=" + std.extVar("LABEL_SMOOTHING_FACTOR") + "::margin=" + std.extVar("MARGIN") + "::sc=" + std.extVar("SCALE_FACTOR") + (if trust then "::trust" else ""),
     num_labels: num_labels,
     dataset_map: [
         // dname: "task_outputs/dataset/" + dname + "-" + num_labels,
@@ -22,5 +25,5 @@ local trust = std.parseInt(std.extVar("TRUST")) == 1;
         for dname in ["unli", "gnli", "ecare", "entailmentbank", "defeasible-snli", "defeasible-atomic", "circa", "hellaswag", "copa"]
         // for dname in ["circa", "hellaswag", "copa"]
     ],
-    output_dir: "./task_outputs/eval_results/sft-regression/" + model_stem + "::nl=" + num_labels + "::temp=" + temperature + "::reverse_kl=" + reverse_kl + "::std=" + standard_deviation + "::lsf=" + label_smoothing_factor + (if trust then "::trust" else ""),
+    output_dir: "./task_outputs/eval_results/defeasible-regression/" + model_stem + "::nl=" + num_labels + "::temp=" + std.extVar("TEMPERATURE") + "::reverse_kl=" + std.extVar("REVERSE_KL") + "::std=" + std.extVar("STANDARD_DEVIATION") + "::lsf=" + std.extVar("LABEL_SMOOTHING_FACTOR") + "::margin=" + std.extVar("MARGIN") + "::sc=" + std.extVar("SCALE_FACTOR") + (if trust then "::trust" else ""),
 }

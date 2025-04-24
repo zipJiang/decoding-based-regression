@@ -1,2 +1,3 @@
 from .data_collator_for_regression import DataCollatorForCompletionRegression
 from .data_collator_for_soft_lm import DataCollatorForSingleTokenSoftLM
+from .data_collator_for_defeasible_soft import DataCollatorForDefeasibleSoftLM
