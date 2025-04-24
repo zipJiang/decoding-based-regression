@@ -1,0 +1,9 @@
+task_outputs
+data
+wandb
+.env
+*.log
+*.py[coa]
+*.swp
+*__pycache__
+*.db

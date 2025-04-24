@@ -1,0 +1,4 @@
+from .single_token_reg_loss import SingleTokenRegLoss
+from .single_token_reg_loss import MSESingleTokenRegLoss
+from .single_token_reg_loss import MarginSingleTokenRegLoss
+from .soft_token_loss import SoftTokenLoss, SoftTokenLossWithDefeasibleLoss

@@ -1,0 +1,18 @@
+accelerate==1.3.0
+datasets==3.2.0
+evaluate==0.4.3
+numpy==2.2.2
+overrides==7.7.0
+peft==0.14.0
+registrable==0.0.6
+scipy==1.15.1
+tasker==0.0.2
+torch==2.6.0
+transformers==4.48.3
+trl==0.14.0
+ujson==5.10.0
+jsonnet
+flash-attn
+langchain-interface @ git+ssh://git@github.com/zipJiang/langchain-interface.git
+registrable @ git+ssh://git@github.com/zipJiang/registrable.git
+tasker @ git+ssh://git@github.com/zipJiang/tasker.git
