@@ -13,6 +13,8 @@ trl==0.14.0
 ujson==5.10.0
 jsonnet
 flash-attn
+argparse
 langchain-interface @ git+ssh://git@github.com/zipJiang/langchain-interface.git
 registrable @ git+ssh://git@github.com/zipJiang/registrable.git
 tasker @ git+ssh://git@github.com/zipJiang/tasker.git
+# vllm 
