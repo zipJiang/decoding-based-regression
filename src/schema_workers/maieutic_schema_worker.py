@@ -73,7 +73,8 @@ class MaieuticSchemaWorker(BaseSchemaWorker):
                 "body": {
                     "premise": name_to_node_dict[edge.target].content["E"],
                     "hypothesis": name_to_node_dict[edge.source].content["E"] if edge.content["direction"] == "T" else name_to_node_dict[edge.target].content["E_tilde"]
-                }
+                },
+                "direction": edge.content['direction']
             })
             
         with partial_state.split_between_processes(prob_requests) as distributed_prob_requests:
@@ -120,7 +121,7 @@ class MaieuticSchemaWorker(BaseSchemaWorker):
                 source_index = node_name_to_index[pbr["tag"].split(" -> ")[0]]
                 target_index = node_name_to_index[pbr["tag"].split(" -> ")[1]]
                 
-                if edge.content["direction"] == "T":
+                if pbr["direction"] == "T":
                     clause = [source_index, -target_index]
                 else:
                     clause = [-source_index, -target_index]
